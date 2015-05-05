@@ -3,11 +3,14 @@
 
 #include "utils.h"
 
-#define DEFAULT_PORT  5672
-#define DEFAULT_TLS   0
-#define DEFAULT_USER  "guest"
-#define DEFAULT_PASS  "guest"
-#define DEFAULT_VHOST "/"
+#define DEFAULT_PORT     5672
+#define DEFAULT_TLS      0
+#define DEFAULT_USER     "guest"
+#define DEFAULT_PASS     "guest"
+#define DEFAULT_VHOST    "/"
+#define DEFAULT_CHANNEL  1
+#define DEFAULT_EXCHANGE "amq.direct"
+#define DEFAULT_KEY      "#"
 
 #define FRAME_MAX   131072
 #define CHANNEL_MAX 0
@@ -89,11 +92,11 @@ extern char
 {
     amqp_rpc_reply_t reply;
     amqp_bytes_t queue;
-    char *proposed_queue = NULL;
+    char *queue_name = NULL;
     int channel, passive, durable, exclusive, auto_delete;
 
     if(fetch_int(args, "channel", &channel) != RMQC_OK)
-        channel = 1;
+        channel = DEFAULT_CHANNEL;
 
     amqp_channel_open(self->con, channel);
     reply = amqp_get_rpc_reply(self->con);
@@ -109,9 +112,9 @@ extern char
     if(fetch_int(args, "auto_delete", &auto_delete) != RMQC_OK)
         auto_delete = 1;
     
-    fetch_str(args, "queue", &proposed_queue);
+    fetch_str(args, "queue", &queue_name);
     
-    queue = (proposed_queue ? amqp_cstring_bytes(proposed_queue) : amqp_empty_bytes);
+    queue = (queue_name ? amqp_cstring_bytes(queue_name) : amqp_empty_bytes);
     amqp_queue_declare(self->con, channel, queue, passive, durable, exclusive,
                        auto_delete, amqp_empty_table);
     reply = amqp_get_rpc_reply(self->con);
@@ -124,18 +127,67 @@ extern char
 extern int
 rmqc_bind(rmqc_t *self, HV *args)
 {
-    return 0;
+    amqp_rpc_reply_t reply;
+    amqp_bytes_t queue;
+    char *queue_name = NULL, *exchange = NULL, *key = NULL;
+    int channel;
+
+    if(fetch_int(args, "channel", &channel) != RMQC_OK)
+        channel = DEFAULT_CHANNEL;
+    if(fetch_str(args, "exchange", &exchange) != RMQC_OK)
+        exchange = DEFAULT_EXCHANGE;
+    if(fetch_str(args, "key", &key) != RMQC_OK)
+        key = DEFAULT_KEY;
+
+    fetch_str(args, "queue", &queue_name);
+    queue = (queue_name ? amqp_cstring_bytes(queue_name) : amqp_empty_bytes);
+
+    amqp_queue_bind(self->con, channel, queue, amqp_cstring_bytes(exchange),
+                    amqp_cstring_bytes(key), amqp_empty_table);
+    reply = amqp_get_rpc_reply(self->con);
+    if(reply.reply_type != AMQP_RESPONSE_NORMAL)
+        croak("failed to bind");
+
+    return RMQC_OK;
 }
 
 extern int
-rmqc_disconnect(rmqc_t *self)
+rmqc_consume(rmqc_t *self, HV *args)
 {
-    return 0;
+    return RMQC_OK;
+}
+
+extern int
+rmqc_channel_close(rmqc_t *self, int channel)
+{
+    amqp_rpc_reply_t reply;
+
+    reply = amqp_channel_close(self->con, channel, AMQP_REPLY_SUCCESS);
+    if(reply.reply_type != AMQP_RESPONSE_NORMAL)
+        croak("failed to close channel %d", channel);
+
+    return RMQC_OK;
+}
+
+extern int
+rmqc_close(rmqc_t *self)
+{
+    amqp_rpc_reply_t reply;
+
+    reply = amqp_connection_close(self->con, AMQP_REPLY_SUCCESS);
+    if(reply.reply_type != AMQP_RESPONSE_NORMAL)
+        croak("failed to close connection");
+    self->con = NULL;
+
+    return RMQC_OK;
 }
 
 extern int
 rmqc_destroy(rmqc_t *self)
 {
+    if(self->con != NULL)
+        rmqc_close(self);
+    
     if(self != NULL)
         free(self);
     
