@@ -1,6 +1,7 @@
 *.o
 *~
 Connection.o
+Connection.c
 Connection.bs
 Makefile
 blib*
