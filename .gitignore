@@ -1,0 +1,7 @@
+*.o
+*~
+Connection.o
+Connection.bs
+Makefile
+blib*
+pm_to_blib
