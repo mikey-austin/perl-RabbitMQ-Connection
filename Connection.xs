@@ -25,6 +25,12 @@ _new(package, args_ref)
         RETVAL
 
 void
+connect(self)
+    RabbitMQ::Connection self
+    CODE:
+        rmqc_connect(self);
+
+void
 DESTROY(self)
     RabbitMQ::Connection self
     CODE:
