@@ -25,8 +25,12 @@ extern int rmqc_new(rmqc_t **self, HV *args);
 
 extern int rmqc_destroy(rmqc_t *self);
 
-extern int rmqc_declare_queue(rmqc_t *self, HV *args);
+extern char *rmqc_declare_queue(rmqc_t *self, HV *args);
+
+extern int rmqc_bind(rmqc_t *self, HV *args);
 
 extern int rmqc_connect(rmqc_t *self);
+
+extern int rmqc_disconnect(rmqc_t *self);
 
 #endif

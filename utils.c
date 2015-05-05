@@ -84,13 +84,13 @@ rmqc_connect(rmqc_t *self)
  * Open the specified channel (defaults to 1) and declare a queue on
  * a connected connection.
  */
-extern int
-rmqc_declare_queue(rmqc_t *self, HV *args)
+extern char
+*rmqc_declare_queue(rmqc_t *self, HV *args)
 {
-    amqp_queue_declare_ok_t *res;
     amqp_rpc_reply_t reply;
-    int channel, passive, durable, exclusive, auto_delete;
     amqp_bytes_t queue;
+    char *proposed_queue = NULL;
+    int channel, passive, durable, exclusive, auto_delete;
 
     if(fetch_int(args, "channel", &channel) != RMQC_OK)
         channel = 1;
@@ -108,17 +108,28 @@ rmqc_declare_queue(rmqc_t *self, HV *args)
         exclusive = 0;
     if(fetch_int(args, "auto_delete", &auto_delete) != RMQC_OK)
         auto_delete = 1;
-
-    res = amqp_queue_declare(self->con, channel, amqp_empty_bytes, passive,
-                             durable, exclusive, auto_delete, amqp_empty_table);
+    
+    fetch_str(args, "queue", &proposed_queue);
+    
+    queue = (proposed_queue ? amqp_cstring_bytes(proposed_queue) : amqp_empty_bytes);
+    amqp_queue_declare(self->con, channel, queue, passive, durable, exclusive,
+                       auto_delete, amqp_empty_table);
     reply = amqp_get_rpc_reply(self->con);
     if(reply.reply_type != AMQP_RESPONSE_NORMAL)
         croak("failed to declare queue");
 
-    queue = amqp_bytes_malloc_dup(res->queue);
-    if(queue.bytes == NULL)
-        croak("could not allocate queue name");
+    return queue.bytes;
+}
 
+extern int
+rmqc_bind(rmqc_t *self, HV *args)
+{
+    return 0;
+}
+
+extern int
+rmqc_disconnect(rmqc_t *self)
+{
     return 0;
 }
 
