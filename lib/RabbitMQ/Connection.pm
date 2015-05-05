@@ -13,4 +13,9 @@ sub new {
     $class->_new(\%args);
 }
 
+sub declare_queue {
+    my ($self, %args) = @_;
+    $self->_declare_queue(\%args);
+}
+
 1;

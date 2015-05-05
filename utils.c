@@ -93,7 +93,7 @@ rmqc_declare_queue(rmqc_t *self, HV *args)
     amqp_bytes_t queue;
 
     if(fetch_int(args, "channel", &channel) != RMQC_OK)
-        channel = 0;
+        channel = 1;
 
     amqp_channel_open(self->con, channel);
     reply = amqp_get_rpc_reply(self->con);

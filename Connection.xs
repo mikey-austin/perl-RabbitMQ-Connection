@@ -31,6 +31,15 @@ connect(self)
         rmqc_connect(self);
 
 void
+_declare_queue(self, args_ref)
+    RabbitMQ::Connection self
+    SV *args_ref
+    INIT:
+        HV *args = (HV *) SvRV(args_ref);
+    CODE:
+        rmqc_declare_queue(self, args);
+
+void
 DESTROY(self)
     RabbitMQ::Connection self
     CODE:
