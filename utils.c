@@ -3,6 +3,7 @@
 
 #include "utils.h"
 
+#define DEFAULT_HOST      "localhost"
 #define DEFAULT_PORT      5672
 #define DEFAULT_TLS       0
 #define DEFAULT_USER      "guest"
@@ -22,42 +23,96 @@ static int close_channel(rmqc_t *self, int channel);
 static int channel_exists(rmqc_t *self, int channel);
 static void store_channel(rmqc_t *self, int channel);
 static int fetch_int(HV *h, char *key, int *val); 
-static int fetch_str(HV *h, char *key, char **val);
+static int fetch_str(HV *h, char *key, char **val, int *len);
 
 extern int
 rmqc_new(rmqc_t **self, HV *args)
 {
-    /* Validate the connection parameters. */
-    if(!hv_exists(args, "host", strlen("host")))
-        croak("the host is required");
-
-    if(!hv_exists(args, "port", strlen("port")))
-        hv_store(args, "port", strlen("port"), newSVuv(DEFAULT_PORT), 0);
-
-    if(!hv_exists(args, "tls", strlen("tls")))
-        hv_store(args, "tls", strlen("tls"), newSViv(0), 0);
-
-    if(!hv_exists(args, "user", strlen("user")))
-        hv_store(args, "user", strlen("user"), newSVpv(DEFAULT_USER, strlen(DEFAULT_USER)), 0);
-
-    if(!hv_exists(args, "pass", strlen("pass")))
-        hv_store(args, "pass", strlen("pass"), newSVpv(DEFAULT_PASS, strlen(DEFAULT_PASS)), 0);
-
-    if(!hv_exists(args, "vhost", strlen("vhost")))
-        hv_store(args, "vhost", strlen("vhost"), newSVpv(DEFAULT_VHOST, strlen(DEFAULT_VHOST)), 0);
-
-    if(!hv_exists(args, "max_channels", strlen("max_channels")))
-        hv_store(args, "max_channels", strlen("max_channels"), newSViv(1), 0);
+    char *host = NULL, *user = NULL, *pass = NULL, *vhost = NULL, *cacert = NULL;
+    int len;
 
     *self = calloc(1, sizeof(**self));
     if(*self == NULL)
         croak("could not initialize instance");
 
-    (*self)->con = NULL;
-    (*self)->options = args;
-    (*self)->num_channels = 0;
+    if(!hv_exists(args, "host", strlen("host"))) {
+        host = DEFAULT_HOST;
+        len = strlen(DEFAULT_HOST);
+    }
+    else {
+        fetch_str(args, "host", &host, &len);
+    }
 
-    fetch_int(args, "max_channels", &(*self)->max_channels);
+    if(((*self)->host = calloc(len + 1, sizeof(char))) == NULL)
+        croak("calloc failed");
+    strncpy((*self)->host, host, len);
+    (*self)->host[len] = '\0';
+
+    if(!hv_exists(args, "port", strlen("port")))
+        (*self)->port = DEFAULT_PORT;
+    else
+        fetch_int(args, "port", &(*self)->port);
+
+    if(!hv_exists(args, "tls", strlen("tls")))
+        (*self)->ssl = 0;
+    else
+        fetch_int(args, "tls", &(*self)->ssl);
+
+    if(!hv_exists(args, "cacert", strlen("cacert"))) {
+        (*self)->cacert = NULL;
+    }
+    else {
+        if(((*self)->cacert = calloc(len + 1, sizeof(char))) == NULL)
+            croak("calloc failed");
+        fetch_str(args, "cacert", &cacert, &len);
+        strncpy((*self)->cacert, cacert, len);
+        (*self)->cacert[len] = '\0';
+    }
+
+    if(!hv_exists(args, "user", strlen("user"))) {
+        user = DEFAULT_USER;
+        len = strlen(DEFAULT_USER);
+    }
+    else {
+        fetch_str(args, "user", &user, &len);
+    }
+
+    if(((*self)->user = calloc(len + 1, sizeof(char))) == NULL)
+        croak("calloc failed");
+    strncpy((*self)->user, user, len);
+    (*self)->user[len] = '\0';
+
+    if(!hv_exists(args, "pass", strlen("pass"))) {
+        pass = DEFAULT_PASS;
+        len = strlen(DEFAULT_PASS);
+    }
+    else {
+        fetch_str(args, "pass", &pass, &len);
+    }
+
+    if(((*self)->pass = calloc(len + 1, sizeof(char))) == NULL)
+        croak("calloc failed");
+    strncpy((*self)->pass, pass, len + 1);
+    (*self)->pass[len] = '\0';
+
+    if(!hv_exists(args, "vhost", strlen("vhost"))) {
+        vhost = DEFAULT_VHOST;
+        len = strlen(DEFAULT_VHOST);
+    }
+    else {
+        fetch_str(args, "vhost", &vhost, &len);
+    }
+
+    if(((*self)->vhost = calloc(len + 1, sizeof(char))) == NULL)
+        croak("calloc failed");
+    strncpy((*self)->vhost, vhost, len);
+    (*self)->vhost[len] = '\0';
+
+    if(!hv_exists(args, "max_channels", strlen("max_channels")))
+        (*self)->max_channels = 1;
+    else
+        fetch_int(args, "max_channels", &(*self)->max_channels);
+
     if(((*self)->channels = calloc((*self)->max_channels, sizeof(int))) == NULL)
         croak("could not initialize list of connections");
 
@@ -72,42 +127,34 @@ rmqc_connect(rmqc_t *self)
 {
     amqp_socket_t *socket = NULL;
     amqp_rpc_reply_t reply;
-    int status, port;
-    char *host, *user, *pass, *vhost, *cacert = NULL;
+    int status;
 
     self->con = amqp_new_connection();
     if(!(socket = amqp_tcp_socket_new(self->con)))
         croak("could not create socket");
-
-    fetch_str(self->options, "host", &host);
-    fetch_int(self->options, "port", &port);
-    fetch_int(self->options, "ssl", &self->ssl);
-    fetch_str(self->options, "cacert", &cacert);
 
     if(self->ssl) {
         socket = amqp_ssl_socket_new(self->con);
         if(!socket)
             croak("could not create SSL/TLS socket");
 
-        if(cacert) {
-            status = amqp_ssl_socket_set_cacert(socket, cacert);
+        if(self->cacert) {
+            status = amqp_ssl_socket_set_cacert(socket, self->cacert);
             if(status)
-                croak("could not set CA certificate %s", cacert);
+                croak("could not set CA certificate %s", self->cacert);
         }
     }
 
-    status = amqp_socket_open(socket, host, port);
+    status = amqp_socket_open(socket, self->host, self->port);
     if(status != 0)
-        croak("open socket to %s port %d", host, port);
+        croak("open %ssocket to %s port %d",
+              (self->ssl ? "ssl " : ""), self->host, self->port);
 
-    fetch_str(self->options, "user", &user);
-    fetch_str(self->options, "pass", &pass);
-    fetch_str(self->options, "vhost", &vhost);
-    reply = amqp_login(self->con, vhost, self->max_channels,
+    reply = amqp_login(self->con, self->vhost, self->max_channels,
                        FRAME_MAX, HEARTBEAT, AMQP_SASL_METHOD_PLAIN,
-                       user, pass);
+                       self->user, self->pass);
     if(reply.reply_type != AMQP_RESPONSE_NORMAL)
-        croak("login failed for user %s, vhost %s", user, vhost);
+        croak("login failed for user %s, vhost %s", self->user, self->vhost);
 
     return RMQC_OK;
 }
@@ -122,7 +169,7 @@ extern char
     amqp_rpc_reply_t reply;
     amqp_bytes_t queue;
     char *queue_name = NULL;
-    int channel, passive, durable, exclusive, auto_delete;
+    int channel, passive, durable, exclusive, auto_delete, len;
 
     if(fetch_int(args, "channel", &channel) != RMQC_OK)
         channel = DEFAULT_CHANNEL;
@@ -142,9 +189,14 @@ extern char
     if(fetch_int(args, "auto_delete", &auto_delete) != RMQC_OK)
         auto_delete = 1;
     
-    fetch_str(args, "queue", &queue_name);
-    
-    queue = (queue_name ? amqp_cstring_bytes(queue_name) : amqp_empty_bytes);
+    if(fetch_str(args, "queue", &queue_name, &len) != RMQC_OK) {
+        queue = amqp_empty_bytes;
+    }
+    else {
+        queue.bytes = queue_name;
+        queue.len = len;
+    }
+
     amqp_queue_declare(self->con, channel, queue, passive, durable, exclusive,
                        auto_delete, amqp_empty_table);
     reply = amqp_get_rpc_reply(self->con);
@@ -158,25 +210,40 @@ extern int
 rmqc_bind(rmqc_t *self, HV *args)
 {
     amqp_rpc_reply_t reply;
-    amqp_bytes_t queue;
-    char *queue_name = NULL, *exchange = NULL, *key = NULL;
-    int channel;
+    amqp_bytes_t queue, exchange, key;
+    char *queue_name = NULL, *exchange_name = NULL, *key_name = NULL;
+    int channel, len;
 
     if(fetch_int(args, "channel", &channel) != RMQC_OK)
         channel = DEFAULT_CHANNEL;
     if(!channel_exists(self, channel))
         croak("channel %d has not been opened", channel);
 
-    if(fetch_str(args, "exchange", &exchange) != RMQC_OK)
-        exchange = DEFAULT_EXCHANGE;
-    if(fetch_str(args, "key", &key) != RMQC_OK)
-        key = DEFAULT_KEY;
+    if(fetch_str(args, "exchange", &exchange_name, &len) != RMQC_OK) {
+        exchange = amqp_cstring_bytes(DEFAULT_EXCHANGE);
+    }
+    else {
+        exchange.bytes = exchange_name;
+        exchange.len = len;
+    }
 
-    fetch_str(args, "queue", &queue_name);
-    queue = (queue_name ? amqp_cstring_bytes(queue_name) : amqp_empty_bytes);
+    if(fetch_str(args, "key", &key_name, &len) != RMQC_OK) {
+        key = amqp_cstring_bytes(DEFAULT_KEY);
+    }
+    else {
+        key.bytes = key_name;
+        key.len = len;
+    }
 
-    amqp_queue_bind(self->con, channel, queue, amqp_cstring_bytes(exchange),
-                    amqp_cstring_bytes(key), amqp_empty_table);
+    if(fetch_str(args, "queue", &queue_name, &len) != RMQC_OK) {
+        queue = amqp_empty_bytes;
+    }
+    else {
+        queue.bytes = queue_name;
+        queue.len = len;
+    }
+
+    amqp_queue_bind(self->con, channel, queue, exchange, key, amqp_empty_table);
     reply = amqp_get_rpc_reply(self->con);
     if(reply.reply_type != AMQP_RESPONSE_NORMAL)
         croak("failed to bind on channel %d", channel);
@@ -190,7 +257,7 @@ rmqc_consume(rmqc_t *self, HV *args)
     amqp_rpc_reply_t reply;
     amqp_bytes_t queue, consumer_tag;
     char *queue_name = NULL, *tag_name = NULL;
-    int channel, no_local, no_ack, exclusive;
+    int channel, no_local, no_ack, exclusive, len;
 
     if(fetch_int(args, "channel", &channel) != RMQC_OK)
         channel = DEFAULT_CHANNEL;
@@ -206,11 +273,21 @@ rmqc_consume(rmqc_t *self, HV *args)
     if(fetch_int(args, "exclusive", &exclusive) != RMQC_OK)
         exclusive = DEFAULT_EXCLUSIVE;
 
-    fetch_str(args, "consumer_tag", &tag_name);
-    consumer_tag = (tag_name ? amqp_cstring_bytes(tag_name) : amqp_empty_bytes);
+    if(fetch_str(args, "consumer_tag", &tag_name, &len) != RMQC_OK) {
+        consumer_tag = amqp_empty_bytes;
+    }
+    else {
+        consumer_tag.bytes = tag_name;
+        consumer_tag.len = len;
+    }
 
-    fetch_str(args, "queue", &queue_name);
-    queue = (queue_name ? amqp_cstring_bytes(queue_name) : amqp_empty_bytes);
+    if(fetch_str(args, "queue", &queue_name, &len) != RMQC_OK) {
+        queue = amqp_empty_bytes;
+    }
+    else {
+        queue.bytes = queue_name;
+        queue.len = len;
+    }
 
     amqp_basic_consume(self->con, channel, queue, consumer_tag, no_local,
                        no_ack, exclusive, amqp_empty_table);
@@ -259,8 +336,6 @@ rmqc_close(rmqc_t *self)
     for(i = 0; i < self->num_channels; i++) {
         close_channel(self, self->channels[i]);
     }
-    free(self->channels);
-    self->channels = NULL;
 
     reply = amqp_connection_close(self->con, AMQP_REPLY_SUCCESS);
     if(reply.reply_type != AMQP_RESPONSE_NORMAL)
@@ -277,8 +352,17 @@ rmqc_destroy(rmqc_t *self)
     if(self->con != NULL)
         rmqc_close(self);
     
-    if(self != NULL)
+    if(self != NULL) {
+        free(self->host);
+        free(self->user);
+        free(self->pass);
+        free(self->vhost);
+        free(self->channels);
+        if(self->cacert)
+            free(self->cacert);
+        self->channels = NULL;
         free(self);
+    }
     
     return RMQC_OK;
 }
@@ -335,9 +419,10 @@ fetch_int(HV *h, char *key, int *val)
 }
 
 static int
-fetch_str(HV *h, char *key, char **val)
+fetch_str(HV *h, char *key, char **val, int *len)
 {
     SV **v;
+    STRLEN plen;
 
     if(!hv_exists(h, key, strlen(key))
        || !(v = hv_fetch(h, key, strlen(key), 0)))
@@ -345,6 +430,8 @@ fetch_str(HV *h, char *key, char **val)
         return RMQC_ERR;
     }
 
-    *val = SvPV_nolen(*v);
+    *val = SvPV(*v, plen);
+    *len = plen;
+
     return RMQC_OK;
 }

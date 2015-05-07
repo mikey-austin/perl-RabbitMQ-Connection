@@ -16,11 +16,16 @@
 
 struct rmqc {
     amqp_connection_state_t con;
-    HV *options;
+    char *host;
+    int port;
+    char *vhost;
+    char *user;
+    char *pass;
     int *channels;
     int max_channels;
     int num_channels;
     int ssl;
+    char *cacert;
 };
 
 typedef struct rmqc rmqc_t;
