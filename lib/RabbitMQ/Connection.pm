@@ -18,4 +18,14 @@ sub declare_queue {
     $self->_declare_queue(\%args);
 }
 
+sub bind {
+    my ($self, %args) = @_;
+    $self->_bind(\%args);
+}
+
+sub consume {
+    my ($self, %args) = @_;
+    $self->_consume(\%args);
+}
+
 1;

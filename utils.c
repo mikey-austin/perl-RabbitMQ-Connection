@@ -15,7 +15,6 @@
 #define DEFAULT_EXCLUSIVE 0
 #define DEFAULT_NO_ACK    1
 
-
 #define FRAME_MAX    131072
 #define HEARTBEAT    0
 
@@ -208,6 +207,21 @@ rmqc_consume(rmqc_t *self, HV *args)
 }
 
 extern int
+rmqc_receive(rmqc_t *self, amqp_envelope_t *envelope)
+{
+    amqp_rpc_reply_t res;
+
+    amqp_maybe_release_buffers(self->con);
+
+    /* We set no timeout, so this will block. */
+    res = amqp_consume_message(self->con, envelope, NULL, 0);
+    if(res.reply_type != AMQP_RESPONSE_NORMAL)
+        croak("received unexpected response");
+
+    return RMQC_OK;
+}
+
+extern int
 rmqc_close(rmqc_t *self)
 {
     int i;
@@ -222,6 +236,7 @@ rmqc_close(rmqc_t *self)
     reply = amqp_connection_close(self->con, AMQP_REPLY_SUCCESS);
     if(reply.reply_type != AMQP_RESPONSE_NORMAL)
         croak("failed to close connection");
+    amqp_destroy_connection(self->con);
     self->con = NULL;
 
     return RMQC_OK;
