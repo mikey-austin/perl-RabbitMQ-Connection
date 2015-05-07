@@ -14,9 +14,9 @@
 
 #define FRAME_MAX    131072
 #define HEARTBEAT    0
-#define MAX_CHAN_DIG 10
 
 static int close_channel(rmqc_t *self, int channel);
+static int channel_exists(rmqc_t *self, int channel);
 static void store_channel(rmqc_t *self, int channel);
 static int fetch_int(HV *h, char *key, int *val); 
 static int fetch_str(HV *h, char *key, char **val);
@@ -146,6 +146,9 @@ rmqc_bind(rmqc_t *self, HV *args)
 
     if(fetch_int(args, "channel", &channel) != RMQC_OK)
         channel = DEFAULT_CHANNEL;
+    if(!channel_exists(self, channel))
+        croak("channel %d has not been opened", channel);
+
     if(fetch_str(args, "exchange", &exchange) != RMQC_OK)
         exchange = DEFAULT_EXCHANGE;
     if(fetch_str(args, "key", &key) != RMQC_OK)
@@ -213,15 +216,23 @@ close_channel(rmqc_t *self, int channel)
     return RMQC_OK;
 }
 
-static void
-store_channel(rmqc_t *self, int channel)
+static int
+channel_exists(rmqc_t *self, int channel)
 {
     int i;
 
-    /* Check if the channel exists. */
     for(i = 0; i < self->num_channels; i++)
         if(channel == self->channels[i])
-            return;
+            return 1;
+
+    return 0;
+}
+
+static void
+store_channel(rmqc_t *self, int channel)
+{
+    if(!channel_exists(self, channel))
+        return;
 
     if(self->num_channels == self->max_channels)
         croak("max configured channels of %d exceeded", self->max_channels);
