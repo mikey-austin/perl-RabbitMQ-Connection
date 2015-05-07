@@ -168,6 +168,9 @@ rmqc_declare_exchange(rmqc_t *self, HV *args)
     char *exchange_name = NULL, *type_name = NULL;
     int channel, passive, durable, auto_delete, internal, len;
 
+    if(self->con == NULL)
+        croak("not connected");
+
     if(fetch_int(args, "channel", &channel) != RMQC_OK)
         channel = DEFAULT_CHANNEL;
 
@@ -220,6 +223,9 @@ extern char
     char *queue_name = NULL;
     int channel, passive, durable, exclusive, auto_delete, len;
 
+    if(self->con == NULL)
+        croak("not connected");
+
     if(fetch_int(args, "channel", &channel) != RMQC_OK)
         channel = DEFAULT_CHANNEL;
 
@@ -260,8 +266,12 @@ rmqc_bind(rmqc_t *self, HV *args)
     char *queue_name = NULL, *exchange_name = NULL, *key_name = NULL;
     int channel, len;
 
+    if(self->con == NULL)
+        croak("not connected");
+
     if(fetch_int(args, "channel", &channel) != RMQC_OK)
         channel = DEFAULT_CHANNEL;
+
     if(!channel_exists(self, channel))
         croak("channel %d has not been opened", channel);
 
@@ -302,6 +312,9 @@ rmqc_send(rmqc_t *self, HV *args)
     char *exchange_name = NULL, *key_name = NULL, *body_str = NULL;
     int channel, mandatory, immediate, len;
     amqp_basic_properties_t props;
+
+    if(self->con == NULL)
+        croak("not connected");
 
     props._flags = AMQP_BASIC_CONTENT_TYPE_FLAG | AMQP_BASIC_DELIVERY_MODE_FLAG;
     props.content_type = amqp_cstring_bytes("text/plain");
@@ -358,6 +371,9 @@ rmqc_consume(rmqc_t *self, HV *args)
     char *queue_name = NULL, *tag_name = NULL;
     int channel, no_local, no_ack, exclusive, len;
 
+    if(self->con == NULL)
+        croak("not connected");
+
     if(fetch_int(args, "channel", &channel) != RMQC_OK)
         channel = DEFAULT_CHANNEL;
     if(!channel_exists(self, channel))
@@ -400,6 +416,9 @@ extern SV
 {
     amqp_envelope_t envelope;
     HV *out = newHV();
+
+    if(self->con == NULL)
+        croak("not connected");
 
     amqp_maybe_release_buffers(self->con);
 
