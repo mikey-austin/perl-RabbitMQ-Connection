@@ -10,7 +10,6 @@
 #define DEFAULT_PASS      "guest"
 #define DEFAULT_VHOST     "/"
 #define DEFAULT_CHANNEL   1
-#define DEFAULT_EXCHANGE  "amq.direct"
 #define DEFAULT_KEY       "#"
 #define DEFAULT_NO_LOCAL  0
 #define DEFAULT_EXCLUSIVE 0
@@ -24,6 +23,7 @@ static int channel_exists(rmqc_t *self, int channel);
 static void store_channel(rmqc_t *self, int channel);
 static int fetch_int(HV *h, char *key, int *val); 
 static int fetch_str(HV *h, char *key, char **val, int *len);
+static void croak_on_amqp_error(amqp_rpc_reply_t x, char const *context);
 
 extern int
 rmqc_new(rmqc_t **self, HV *args)
@@ -62,9 +62,9 @@ rmqc_new(rmqc_t **self, HV *args)
         (*self)->cacert = NULL;
     }
     else {
+        fetch_str(args, "cacert", &cacert, &len);
         if(((*self)->cacert = calloc(len + 1, sizeof(char))) == NULL)
             croak("calloc failed");
-        fetch_str(args, "cacert", &cacert, &len);
         strncpy((*self)->cacert, cacert, len);
         (*self)->cacert[len] = '\0';
     }
@@ -126,7 +126,6 @@ extern int
 rmqc_connect(rmqc_t *self)
 {
     amqp_socket_t *socket = NULL;
-    amqp_rpc_reply_t reply;
     int status;
 
     self->con = amqp_new_connection();
@@ -147,14 +146,12 @@ rmqc_connect(rmqc_t *self)
 
     status = amqp_socket_open(socket, self->host, self->port);
     if(status != 0)
-        croak("open %ssocket to %s port %d",
+        croak("could not open %ssocket to %s port %d",
               (self->ssl ? "ssl " : ""), self->host, self->port);
 
-    reply = amqp_login(self->con, self->vhost, self->max_channels,
-                       FRAME_MAX, HEARTBEAT, AMQP_SASL_METHOD_PLAIN,
-                       self->user, self->pass);
-    if(reply.reply_type != AMQP_RESPONSE_NORMAL)
-        croak("login failed for user %s, vhost %s", self->user, self->vhost);
+    croak_on_amqp_error(amqp_login(self->con, self->vhost, self->max_channels,
+                                   FRAME_MAX, HEARTBEAT, AMQP_SASL_METHOD_PLAIN,
+                                   self->user, self->pass), "login");
 
     return RMQC_OK;
 }
@@ -166,7 +163,6 @@ rmqc_connect(rmqc_t *self)
 extern char
 *rmqc_declare_queue(rmqc_t *self, HV *args)
 {
-    amqp_rpc_reply_t reply;
     amqp_bytes_t queue;
     char *queue_name = NULL;
     int channel, passive, durable, exclusive, auto_delete, len;
@@ -176,9 +172,7 @@ extern char
 
     amqp_channel_open(self->con, channel);
     store_channel(self, channel);
-    reply = amqp_get_rpc_reply(self->con);
-    if(reply.reply_type != AMQP_RESPONSE_NORMAL)
-        croak("failed to open channel");
+    croak_on_amqp_error(amqp_get_rpc_reply(self->con), "channel open");
     
     if(fetch_int(args, "passive", &passive) != RMQC_OK)
         passive = 0;
@@ -199,9 +193,7 @@ extern char
 
     amqp_queue_declare(self->con, channel, queue, passive, durable, exclusive,
                        auto_delete, amqp_empty_table);
-    reply = amqp_get_rpc_reply(self->con);
-    if(reply.reply_type != AMQP_RESPONSE_NORMAL)
-        croak("failed to declare queue");
+    croak_on_amqp_error(amqp_get_rpc_reply(self->con), "declare queue");
 
     return queue.bytes;
 }
@@ -209,7 +201,6 @@ extern char
 extern int
 rmqc_bind(rmqc_t *self, HV *args)
 {
-    amqp_rpc_reply_t reply;
     amqp_bytes_t queue, exchange, key;
     char *queue_name = NULL, *exchange_name = NULL, *key_name = NULL;
     int channel, len;
@@ -220,7 +211,7 @@ rmqc_bind(rmqc_t *self, HV *args)
         croak("channel %d has not been opened", channel);
 
     if(fetch_str(args, "exchange", &exchange_name, &len) != RMQC_OK) {
-        exchange = amqp_cstring_bytes(DEFAULT_EXCHANGE);
+        exchange = amqp_empty_bytes;
     }
     else {
         exchange.bytes = exchange_name;
@@ -244,9 +235,7 @@ rmqc_bind(rmqc_t *self, HV *args)
     }
 
     amqp_queue_bind(self->con, channel, queue, exchange, key, amqp_empty_table);
-    reply = amqp_get_rpc_reply(self->con);
-    if(reply.reply_type != AMQP_RESPONSE_NORMAL)
-        croak("failed to bind on channel %d", channel);
+    croak_on_amqp_error(amqp_get_rpc_reply(self->con), "failed to bind");
 
     return RMQC_OK;
 }
@@ -254,7 +243,6 @@ rmqc_bind(rmqc_t *self, HV *args)
 extern int
 rmqc_consume(rmqc_t *self, HV *args)
 {
-    amqp_rpc_reply_t reply;
     amqp_bytes_t queue, consumer_tag;
     char *queue_name = NULL, *tag_name = NULL;
     int channel, no_local, no_ack, exclusive, len;
@@ -291,9 +279,7 @@ rmqc_consume(rmqc_t *self, HV *args)
 
     amqp_basic_consume(self->con, channel, queue, consumer_tag, no_local,
                        no_ack, exclusive, amqp_empty_table);
-    reply = amqp_get_rpc_reply(self->con);
-    if(reply.reply_type != AMQP_RESPONSE_NORMAL)
-        croak("failed to consume on channel %d", channel);
+    croak_on_amqp_error(amqp_get_rpc_reply(self->con), "consume");
 
     return RMQC_OK;
 }
@@ -301,16 +287,13 @@ rmqc_consume(rmqc_t *self, HV *args)
 extern SV
 *rmqc_receive(rmqc_t *self)
 {
-    amqp_rpc_reply_t res;
     amqp_envelope_t envelope;
     HV *out = newHV();
 
     amqp_maybe_release_buffers(self->con);
 
     /* We set no timeout, so this will block. */
-    res = amqp_consume_message(self->con, &envelope, NULL, 0);
-    if(res.reply_type != AMQP_RESPONSE_NORMAL)
-        croak("received unexpected response");
+    croak_on_amqp_error(amqp_consume_message(self->con, &envelope, NULL, 0), "consume_message");
 
     hv_store(out, "channel", strlen("channel"), newSViv(envelope.channel), 0);
     hv_store(out, "exchange", strlen("exchange"),
@@ -331,15 +314,12 @@ extern int
 rmqc_close(rmqc_t *self)
 {
     int i;
-    amqp_rpc_reply_t reply;
 
     for(i = 0; i < self->num_channels; i++) {
         close_channel(self, self->channels[i]);
     }
 
-    reply = amqp_connection_close(self->con, AMQP_REPLY_SUCCESS);
-    if(reply.reply_type != AMQP_RESPONSE_NORMAL)
-        croak("failed to close connection");
+    croak_on_amqp_error(amqp_connection_close(self->con, AMQP_REPLY_SUCCESS), "close");
     amqp_destroy_connection(self->con);
     self->con = NULL;
 
@@ -349,9 +329,6 @@ rmqc_close(rmqc_t *self)
 extern int
 rmqc_destroy(rmqc_t *self)
 {
-    if(self->con != NULL)
-        rmqc_close(self);
-    
     if(self != NULL) {
         free(self->host);
         free(self->user);
@@ -370,11 +347,7 @@ rmqc_destroy(rmqc_t *self)
 static int
 close_channel(rmqc_t *self, int channel)
 {
-    amqp_rpc_reply_t reply;
-
-    reply = amqp_channel_close(self->con, channel, AMQP_REPLY_SUCCESS);
-    if(reply.reply_type != AMQP_RESPONSE_NORMAL)
-        croak("failed to close channel %d", channel);
+    croak_on_amqp_error(amqp_channel_close(self->con, channel, AMQP_REPLY_SUCCESS), "channel close");
 
     return RMQC_OK;
 }
@@ -394,13 +367,13 @@ channel_exists(rmqc_t *self, int channel)
 static void
 store_channel(rmqc_t *self, int channel)
 {
-    if(!channel_exists(self, channel))
+    if(channel_exists(self, channel))
         return;
 
     if(self->num_channels == self->max_channels)
         croak("max configured channels of %d exceeded", self->max_channels);
 
-    self->channels[++self->num_channels] = channel;
+    self->channels[self->num_channels++] = channel;
 }
 
 static int
@@ -434,4 +407,45 @@ fetch_str(HV *h, char *key, char **val, int *len)
     *len = plen;
 
     return RMQC_OK;
+}
+
+static void
+croak_on_amqp_error(amqp_rpc_reply_t x, char const *context)
+{
+    switch (x.reply_type) {
+    case AMQP_RESPONSE_NORMAL:
+        return;
+
+    case AMQP_RESPONSE_NONE:
+        croak("%s: missing RPC reply type!\n", context);
+        break;
+
+    case AMQP_RESPONSE_LIBRARY_EXCEPTION:
+        croak("%s: %s\n", context, amqp_error_string2(x.library_error));
+        break;
+
+    case AMQP_RESPONSE_SERVER_EXCEPTION:
+        switch (x.reply.id) {
+        case AMQP_CONNECTION_CLOSE_METHOD: {
+            amqp_connection_close_t *m = (amqp_connection_close_t *) x.reply.decoded;
+            croak("%s: server connection error %d, message: %.*s\n",
+                    context,
+                    m->reply_code,
+                    (int) m->reply_text.len, (char *) m->reply_text.bytes);
+            break;
+        }
+        case AMQP_CHANNEL_CLOSE_METHOD: {
+            amqp_channel_close_t *m = (amqp_channel_close_t *) x.reply.decoded;
+            croak("%s: server channel error %d, message: %.*s\n",
+                    context,
+                    m->reply_code,
+                    (int) m->reply_text.len, (char *) m->reply_text.bytes);
+            break;
+        }
+        default:
+            croak("%s: unknown server error, method id 0x%08X\n", context, x.reply.id);
+            break;
+        }
+        break;
+    }
 }
