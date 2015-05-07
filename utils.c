@@ -3,14 +3,18 @@
 
 #include "utils.h"
 
-#define DEFAULT_PORT     5672
-#define DEFAULT_TLS      0
-#define DEFAULT_USER     "guest"
-#define DEFAULT_PASS     "guest"
-#define DEFAULT_VHOST    "/"
-#define DEFAULT_CHANNEL  1
-#define DEFAULT_EXCHANGE "amq.direct"
-#define DEFAULT_KEY      "#"
+#define DEFAULT_PORT      5672
+#define DEFAULT_TLS       0
+#define DEFAULT_USER      "guest"
+#define DEFAULT_PASS      "guest"
+#define DEFAULT_VHOST     "/"
+#define DEFAULT_CHANNEL   1
+#define DEFAULT_EXCHANGE  "amq.direct"
+#define DEFAULT_KEY       "#"
+#define DEFAULT_NO_LOCAL  0
+#define DEFAULT_EXCLUSIVE 0
+#define DEFAULT_NO_ACK    1
+
 
 #define FRAME_MAX    131072
 #define HEARTBEAT    0
@@ -161,7 +165,7 @@ rmqc_bind(rmqc_t *self, HV *args)
                     amqp_cstring_bytes(key), amqp_empty_table);
     reply = amqp_get_rpc_reply(self->con);
     if(reply.reply_type != AMQP_RESPONSE_NORMAL)
-        croak("failed to bind");
+        croak("failed to bind on channel %d", channel);
 
     return RMQC_OK;
 }
@@ -169,6 +173,37 @@ rmqc_bind(rmqc_t *self, HV *args)
 extern int
 rmqc_consume(rmqc_t *self, HV *args)
 {
+    amqp_rpc_reply_t reply;
+    amqp_bytes_t queue, consumer_tag;
+    char *queue_name = NULL, *tag_name = NULL;
+    int channel, no_local, no_ack, exclusive;
+
+    if(fetch_int(args, "channel", &channel) != RMQC_OK)
+        channel = DEFAULT_CHANNEL;
+    if(!channel_exists(self, channel))
+        croak("channel %d has not been opened", channel);
+
+    if(fetch_int(args, "no_local", &no_local) != RMQC_OK)
+        no_local = DEFAULT_NO_LOCAL;
+
+    if(fetch_int(args, "no_ack", &no_ack) != RMQC_OK)
+        no_ack = DEFAULT_NO_ACK;
+
+    if(fetch_int(args, "exclusive", &exclusive) != RMQC_OK)
+        exclusive = DEFAULT_EXCLUSIVE;
+
+    fetch_str(args, "consumer_tag", &tag_name);
+    consumer_tag = (tag_name ? amqp_cstring_bytes(tag_name) : amqp_empty_bytes);
+
+    fetch_str(args, "queue", &queue_name);
+    queue = (queue_name ? amqp_cstring_bytes(queue_name) : amqp_empty_bytes);
+
+    amqp_basic_consume(self->con, channel, queue, consumer_tag, no_local,
+                       no_ack, exclusive, amqp_empty_table);
+    reply = amqp_get_rpc_reply(self->con);
+    if(reply.reply_type != AMQP_RESPONSE_NORMAL)
+        croak("failed to consume on channel %d", channel);
+
     return RMQC_OK;
 }
 
