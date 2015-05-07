@@ -34,7 +34,7 @@ extern int rmqc_bind(rmqc_t *self, HV *args);
 
 extern int rmqc_consume(rmqc_t *self, HV *args);
 
-extern int rmqc_receive(rmqc_t *self, amqp_envelope_t *envelope);
+extern SV *rmqc_receive(rmqc_t *self);
 
 extern int rmqc_connect(rmqc_t *self);
 

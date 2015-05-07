@@ -206,19 +206,33 @@ rmqc_consume(rmqc_t *self, HV *args)
     return RMQC_OK;
 }
 
-extern int
-rmqc_receive(rmqc_t *self, amqp_envelope_t *envelope)
+extern SV
+*rmqc_receive(rmqc_t *self)
 {
     amqp_rpc_reply_t res;
+    amqp_envelope_t envelope;
+    HV *out = newHV();
 
     amqp_maybe_release_buffers(self->con);
 
     /* We set no timeout, so this will block. */
-    res = amqp_consume_message(self->con, envelope, NULL, 0);
+    res = amqp_consume_message(self->con, &envelope, NULL, 0);
     if(res.reply_type != AMQP_RESPONSE_NORMAL)
         croak("received unexpected response");
 
-    return RMQC_OK;
+    hv_store(out, "channel", strlen("channel"), newSViv(envelope.channel), 0);
+    hv_store(out, "exchange", strlen("exchange"),
+             newSVpv(envelope.exchange.bytes, envelope.exchange.len), 0);
+    hv_store(out, "consumer_tag", strlen("consumer_tag"),
+             newSVpv(envelope.consumer_tag.bytes, envelope.consumer_tag.len), 0);
+    hv_store(out, "routing_key", strlen("routing_key"),
+             newSVpv(envelope.routing_key.bytes, envelope.routing_key.len), 0);
+    hv_store(out, "body", strlen("body"),
+             newSVpv(envelope.message.body.bytes, envelope.message.body.len), 0);
+    
+    amqp_destroy_envelope(&envelope);
+
+    return newRV_noinc((SV *) out);
 }
 
 extern int

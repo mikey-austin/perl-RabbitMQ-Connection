@@ -59,13 +59,13 @@ _consume(self, args_ref)
     CODE:
         rmqc_consume(self, args);
 
-void
+SV *
 receive(self)
     RabbitMQ::Connection self
-    INIT:
-        amqp_envelope_t envelope;
     CODE:
-        rmqc_receive(self, &envelope);
+        RETVAL = rmqc_receive(self);
+    OUTPUT:
+        RETVAL
 
 void
 close(self)
