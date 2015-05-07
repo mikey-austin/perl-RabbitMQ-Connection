@@ -6,6 +6,7 @@
 #include "XSUB.h"
 #include "utils.h"
 
+#include <amqp_ssl_socket.h>
 #include <amqp_tcp_socket.h>
 #include <amqp.h>
 #include <amqp_framing.h>
@@ -19,6 +20,7 @@ struct rmqc {
     int *channels;
     int max_channels;
     int num_channels;
+    int ssl;
 };
 
 typedef struct rmqc rmqc_t;

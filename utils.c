@@ -73,7 +73,7 @@ rmqc_connect(rmqc_t *self)
     amqp_socket_t *socket = NULL;
     amqp_rpc_reply_t reply;
     int status, port;
-    char *host, *user, *pass, *vhost;
+    char *host, *user, *pass, *vhost, *cacert = NULL;
 
     self->con = amqp_new_connection();
     if(!(socket = amqp_tcp_socket_new(self->con)))
@@ -81,6 +81,21 @@ rmqc_connect(rmqc_t *self)
 
     fetch_str(self->options, "host", &host);
     fetch_int(self->options, "port", &port);
+    fetch_int(self->options, "ssl", &self->ssl);
+    fetch_str(self->options, "cacert", &cacert);
+
+    if(self->ssl) {
+        socket = amqp_ssl_socket_new(self->con);
+        if(!socket)
+            croak("could not create SSL/TLS socket");
+
+        if(cacert) {
+            status = amqp_ssl_socket_set_cacert(socket, cacert);
+            if(status)
+                croak("could not set CA certificate %s", cacert);
+        }
+    }
+
     status = amqp_socket_open(socket, host, port);
     if(status != 0)
         croak("open socket to %s port %d", host, port);
