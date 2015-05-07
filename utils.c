@@ -236,7 +236,7 @@ extern char
     if(fetch_int(args, "exclusive", &exclusive) != RMQC_OK)
         exclusive = 0;
     if(fetch_int(args, "auto_delete", &auto_delete) != RMQC_OK)
-        auto_delete = 1;
+        auto_delete = 0;
     
     if(fetch_str(args, "queue", &queue_name, &len) != RMQC_OK) {
         queue = amqp_empty_bytes;
