@@ -18,6 +18,11 @@ sub declare_queue {
     $self->_declare_queue(\%args);
 }
 
+sub declare_exchange {
+    my ($self, %args) = @_;
+    $self->_declare_exchange(\%args);
+}
+
 sub bind {
     my ($self, %args) = @_;
     $self->_bind(\%args);

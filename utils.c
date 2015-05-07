@@ -14,6 +14,7 @@
 #define DEFAULT_NO_LOCAL  0
 #define DEFAULT_EXCLUSIVE 0
 #define DEFAULT_NO_ACK    1
+#define DEFAULT_EXCH_TYPE "direct" 
 
 #define FRAME_MAX    131072
 #define HEARTBEAT    0
@@ -157,6 +158,58 @@ rmqc_connect(rmqc_t *self)
 }
 
 /*
+ * Open the specified channel if not already open (defaults to 1) and declare
+ * an exchange on a connected connection.
+ */
+extern int
+rmqc_declare_exchange(rmqc_t *self, HV *args)
+{
+    amqp_bytes_t exchange, type;
+    char *exchange_name = NULL, *type_name = NULL;
+    int channel, passive, durable, auto_delete, internal, len;
+
+    if(fetch_int(args, "channel", &channel) != RMQC_OK)
+        channel = DEFAULT_CHANNEL;
+
+    if(!channel_exists(self, channel)) {
+        amqp_channel_open(self->con, channel);
+        croak_on_amqp_error(amqp_get_rpc_reply(self->con), "channel open");
+        store_channel(self, channel);
+    }
+    
+    if(fetch_int(args, "passive", &passive) != RMQC_OK)
+        passive = 0;
+    if(fetch_int(args, "durable", &durable) != RMQC_OK)
+        durable = 0;
+    if(fetch_int(args, "internal", &internal) != RMQC_OK)
+        internal = 0;
+    if(fetch_int(args, "auto_delete", &auto_delete) != RMQC_OK)
+        auto_delete = 1;
+    
+    if(fetch_str(args, "exchange", &exchange_name, &len) != RMQC_OK) {
+        exchange = amqp_empty_bytes;
+    }
+    else {
+        exchange.bytes = exchange_name;
+        exchange.len = len;
+    }
+
+    if(fetch_str(args, "type", &type_name, &len) != RMQC_OK) {
+        type = amqp_cstring_bytes(DEFAULT_EXCH_TYPE);
+    }
+    else {
+        type.bytes = type_name;
+        type.len = len;
+    }
+
+    amqp_exchange_declare(self->con, channel, exchange, type, passive, durable,
+                          auto_delete, internal, amqp_empty_table);
+    croak_on_amqp_error(amqp_get_rpc_reply(self->con), "declare exchange");
+
+    return RMQC_OK;
+}
+
+/*
  * Open the specified channel (defaults to 1) and declare a queue on
  * a connected connection.
  */
@@ -170,9 +223,11 @@ extern char
     if(fetch_int(args, "channel", &channel) != RMQC_OK)
         channel = DEFAULT_CHANNEL;
 
-    amqp_channel_open(self->con, channel);
-    store_channel(self, channel);
-    croak_on_amqp_error(amqp_get_rpc_reply(self->con), "channel open");
+    if(!channel_exists(self, channel)) {
+        amqp_channel_open(self->con, channel);
+        croak_on_amqp_error(amqp_get_rpc_reply(self->con), "channel open");
+        store_channel(self, channel);
+    }
     
     if(fetch_int(args, "passive", &passive) != RMQC_OK)
         passive = 0;
