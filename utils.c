@@ -273,7 +273,7 @@ rmqc_bind(rmqc_t *self, HV *args)
         exchange.len = len;
     }
 
-    if(fetch_str(args, "key", &key_name, &len) != RMQC_OK) {
+    if(fetch_str(args, "routing_key", &key_name, &len) != RMQC_OK) {
         key = amqp_cstring_bytes(DEFAULT_KEY);
     }
     else {
@@ -329,7 +329,7 @@ rmqc_send(rmqc_t *self, HV *args)
         exchange.len = len;
     }
 
-    if(fetch_str(args, "key", &key_name, &len) != RMQC_OK) {
+    if(fetch_str(args, "routing_key", &key_name, &len) != RMQC_OK) {
         routing_key = amqp_empty_bytes;
     }
     else {
