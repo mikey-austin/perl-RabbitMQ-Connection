@@ -16,6 +16,9 @@
 struct rmqc {
     amqp_connection_state_t con;
     HV *options;
+    int *channels;
+    int max_channels;
+    int num_channels;
 };
 
 typedef struct rmqc rmqc_t;
@@ -32,8 +35,6 @@ extern int rmqc_bind(rmqc_t *self, HV *args);
 extern int rmqc_consume(rmqc_t *self, HV *args);
 
 extern int rmqc_connect(rmqc_t *self);
-
-extern int rmqc_channel_close(rmqc_t *self, int channel);
 
 extern int rmqc_close(rmqc_t *self);
 

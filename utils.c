@@ -12,10 +12,12 @@
 #define DEFAULT_EXCHANGE "amq.direct"
 #define DEFAULT_KEY      "#"
 
-#define FRAME_MAX   131072
-#define CHANNEL_MAX 0
-#define HEARTBEAT   0
+#define FRAME_MAX    131072
+#define HEARTBEAT    0
+#define MAX_CHAN_DIG 10
 
+static int close_channel(rmqc_t *self, int channel);
+static void store_channel(rmqc_t *self, int channel);
 static int fetch_int(HV *h, char *key, int *val); 
 static int fetch_str(HV *h, char *key, char **val);
 
@@ -41,12 +43,20 @@ rmqc_new(rmqc_t **self, HV *args)
     if(!hv_exists(args, "vhost", strlen("vhost")))
         hv_store(args, "vhost", strlen("vhost"), newSVpv(DEFAULT_VHOST, strlen(DEFAULT_VHOST)), 0);
 
+    if(!hv_exists(args, "max_channels", strlen("max_channels")))
+        hv_store(args, "max_channels", strlen("max_channels"), newSViv(1), 0);
+
     *self = calloc(1, sizeof(**self));
     if(*self == NULL)
         croak("could not initialize instance");
 
     (*self)->con = NULL;
     (*self)->options = args;
+    (*self)->num_channels = 0;
+
+    fetch_int(args, "max_channels", &(*self)->max_channels);
+    if(((*self)->channels = calloc((*self)->max_channels, sizeof(int))) == NULL)
+        croak("could not initialize list of connections");
 
     return RMQC_OK;
 }
@@ -75,8 +85,9 @@ rmqc_connect(rmqc_t *self)
     fetch_str(self->options, "user", &user);
     fetch_str(self->options, "pass", &pass);
     fetch_str(self->options, "vhost", &vhost);
-    reply = amqp_login(self->con, vhost, CHANNEL_MAX, FRAME_MAX, HEARTBEAT,
-                       AMQP_SASL_METHOD_PLAIN, user, pass);
+    reply = amqp_login(self->con, vhost, self->max_channels,
+                       FRAME_MAX, HEARTBEAT, AMQP_SASL_METHOD_PLAIN,
+                       user, pass);
     if(reply.reply_type != AMQP_RESPONSE_NORMAL)
         croak("login failed for user %s, vhost %s", user, vhost);
 
@@ -99,6 +110,7 @@ extern char
         channel = DEFAULT_CHANNEL;
 
     amqp_channel_open(self->con, channel);
+    store_channel(self, channel);
     reply = amqp_get_rpc_reply(self->con);
     if(reply.reply_type != AMQP_RESPONSE_NORMAL)
         croak("failed to open channel");
@@ -158,21 +170,16 @@ rmqc_consume(rmqc_t *self, HV *args)
 }
 
 extern int
-rmqc_channel_close(rmqc_t *self, int channel)
-{
-    amqp_rpc_reply_t reply;
-
-    reply = amqp_channel_close(self->con, channel, AMQP_REPLY_SUCCESS);
-    if(reply.reply_type != AMQP_RESPONSE_NORMAL)
-        croak("failed to close channel %d", channel);
-
-    return RMQC_OK;
-}
-
-extern int
 rmqc_close(rmqc_t *self)
 {
+    int i;
     amqp_rpc_reply_t reply;
+
+    for(i = 0; i < self->num_channels; i++) {
+        close_channel(self, self->channels[i]);
+    }
+    free(self->channels);
+    self->channels = NULL;
 
     reply = amqp_connection_close(self->con, AMQP_REPLY_SUCCESS);
     if(reply.reply_type != AMQP_RESPONSE_NORMAL)
@@ -194,7 +201,35 @@ rmqc_destroy(rmqc_t *self)
     return RMQC_OK;
 }
 
-int
+static int
+close_channel(rmqc_t *self, int channel)
+{
+    amqp_rpc_reply_t reply;
+
+    reply = amqp_channel_close(self->con, channel, AMQP_REPLY_SUCCESS);
+    if(reply.reply_type != AMQP_RESPONSE_NORMAL)
+        croak("failed to close channel %d", channel);
+
+    return RMQC_OK;
+}
+
+static void
+store_channel(rmqc_t *self, int channel)
+{
+    int i;
+
+    /* Check if the channel exists. */
+    for(i = 0; i < self->num_channels; i++)
+        if(channel == self->channels[i])
+            return;
+
+    if(self->num_channels == self->max_channels)
+        croak("max configured channels of %d exceeded", self->max_channels);
+
+    self->channels[++self->num_channels] = channel;
+}
+
+static int
 fetch_int(HV *h, char *key, int *val)
 {
     SV **v;
@@ -209,7 +244,7 @@ fetch_int(HV *h, char *key, int *val)
     return RMQC_OK;
 }
 
-int
+static int
 fetch_str(HV *h, char *key, char **val)
 {
     SV **v;
