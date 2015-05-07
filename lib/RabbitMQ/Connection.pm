@@ -23,6 +23,11 @@ sub declare_exchange {
     $self->_declare_exchange(\%args);
 }
 
+sub send {
+    my ($self, %args) = @_;
+    $self->_send(\%args);
+}
+
 sub bind {
     my ($self, %args) = @_;
     $self->_bind(\%args);

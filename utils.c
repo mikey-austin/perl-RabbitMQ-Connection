@@ -296,6 +296,62 @@ rmqc_bind(rmqc_t *self, HV *args)
 }
 
 extern int
+rmqc_send(rmqc_t *self, HV *args)
+{
+    amqp_bytes_t exchange, routing_key, body;
+    char *exchange_name = NULL, *key_name = NULL, *body_str = NULL;
+    int channel, mandatory, immediate, len;
+    amqp_basic_properties_t props;
+
+    props._flags = AMQP_BASIC_CONTENT_TYPE_FLAG | AMQP_BASIC_DELIVERY_MODE_FLAG;
+    props.content_type = amqp_cstring_bytes("text/plain");
+    props.delivery_mode = 2;
+
+    if(fetch_int(args, "channel", &channel) != RMQC_OK)
+        channel = DEFAULT_CHANNEL;
+
+    if(!channel_exists(self, channel)) {
+        amqp_channel_open(self->con, channel);
+        croak_on_amqp_error(amqp_get_rpc_reply(self->con), "channel open");
+        store_channel(self, channel);
+    }
+    
+    if(fetch_int(args, "mandatory", &mandatory) != RMQC_OK)
+        mandatory = 0;
+    if(fetch_int(args, "immediate", &immediate) != RMQC_OK)
+       immediate = 0;
+    
+    if(fetch_str(args, "exchange", &exchange_name, &len) != RMQC_OK) {
+        exchange = amqp_empty_bytes;
+    }
+    else {
+        exchange.bytes = exchange_name;
+        exchange.len = len;
+    }
+
+    if(fetch_str(args, "key", &key_name, &len) != RMQC_OK) {
+        routing_key = amqp_empty_bytes;
+    }
+    else {
+        routing_key.bytes = key_name;
+        routing_key.len = len;
+    }
+
+    if(fetch_str(args, "body", &body_str, &len) != RMQC_OK) {
+        body = amqp_empty_bytes;
+    }
+    else {
+        body.bytes = body_str;
+        body.len = len;
+    }
+
+    if(amqp_basic_publish(self->con, channel, exchange, routing_key, mandatory, immediate, &props, body))
+        croak("could not send message");
+
+    return RMQC_OK;
+}
+
+extern int
 rmqc_consume(rmqc_t *self, HV *args)
 {
     amqp_bytes_t queue, consumer_tag;

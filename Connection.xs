@@ -51,6 +51,15 @@ _declare_exchange(self, args_ref)
         rmqc_declare_exchange(self, args);
 
 void
+_send(self, args_ref)
+    RabbitMQ::Connection self
+    SV *args_ref
+    INIT:
+        HV *args = (HV *) SvRV(args_ref);
+    CODE:
+        rmqc_send(self, args);
+
+void
 _bind(self, args_ref)
     RabbitMQ::Connection self
     SV *args_ref
