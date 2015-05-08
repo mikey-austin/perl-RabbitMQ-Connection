@@ -19,9 +19,9 @@
 #define FRAME_MAX    131072
 #define HEARTBEAT    0
 
-static int close_channel(rmqc_t *self, int channel);
 static int channel_exists(rmqc_t *self, int channel);
 static void store_channel(rmqc_t *self, int channel);
+static void remove_channel(rmqc_t *self, int channel);
 static int fetch_int(HV *h, char *key, int *val); 
 static int fetch_str(HV *h, char *key, char **val, int *len);
 static void croak_on_amqp_error(amqp_rpc_reply_t x, char const *context);
@@ -286,8 +286,11 @@ rmqc_bind(rmqc_t *self, HV *args)
     if(fetch_int(args, "channel", &channel) != RMQC_OK)
         channel = DEFAULT_CHANNEL;
 
-    if(!channel_exists(self, channel))
-        croak("channel %d has not been opened", channel);
+    if(!channel_exists(self, channel)) {
+        amqp_channel_open(self->con, channel);
+        croak_on_amqp_error(amqp_get_rpc_reply(self->con), "channel open");
+        store_channel(self, channel);
+    }
 
     if(fetch_str(args, "exchange", &exchange_name, &len) != RMQC_OK) {
         exchange = amqp_empty_bytes;
@@ -390,8 +393,12 @@ rmqc_consume(rmqc_t *self, HV *args)
 
     if(fetch_int(args, "channel", &channel) != RMQC_OK)
         channel = DEFAULT_CHANNEL;
-    if(!channel_exists(self, channel))
-        croak("channel %d has not been opened", channel);
+
+    if(!channel_exists(self, channel)) {
+        amqp_channel_open(self->con, channel);
+        croak_on_amqp_error(amqp_get_rpc_reply(self->con), "channel open");
+        store_channel(self, channel);
+    }
 
     if(fetch_int(args, "no_local", &no_local) != RMQC_OK)
         no_local = DEFAULT_NO_LOCAL;
@@ -460,12 +467,21 @@ rmqc_close(rmqc_t *self)
     int i;
 
     for(i = 0; i < self->num_channels; i++) {
-        close_channel(self, self->channels[i]);
+        rmqc_close_channel(self, self->channels[i]);
     }
 
     croak_on_amqp_error(amqp_connection_close(self->con, AMQP_REPLY_SUCCESS), "close");
     amqp_destroy_connection(self->con);
     self->con = NULL;
+
+    return RMQC_OK;
+}
+
+extern int
+rmqc_close_channel(rmqc_t *self, int channel)
+{
+    croak_on_amqp_error(amqp_channel_close(self->con, channel, AMQP_REPLY_SUCCESS), "channel close");
+    remove_channel(self, channel);
 
     return RMQC_OK;
 }
@@ -485,14 +501,6 @@ rmqc_destroy(rmqc_t *self)
         free(self);
     }
     
-    return RMQC_OK;
-}
-
-static int
-close_channel(rmqc_t *self, int channel)
-{
-    croak_on_amqp_error(amqp_channel_close(self->con, channel, AMQP_REPLY_SUCCESS), "channel close");
-
     return RMQC_OK;
 }
 
@@ -518,6 +526,27 @@ store_channel(rmqc_t *self, int channel)
         croak("max configured channels of %d exceeded", self->max_channels);
 
     self->channels[self->num_channels++] = channel;
+}
+
+static void
+remove_channel(rmqc_t *self, int channel)
+{
+    int i, j;
+
+    if(!channel_exists(self, channel) || self->num_channels == 0)
+        return;
+
+    for(i = 0; i < self->num_channels; i++) {
+        if(self->channels[i] == channel)
+            break;
+    }
+
+    /* Shift all channels after i one place to the left. */
+    for(j = i + 1; j < self->num_channels; i++, j++) {
+        self->channels[i] = self->channels[j];
+    }
+
+    self->num_channels--;
 }
 
 static int

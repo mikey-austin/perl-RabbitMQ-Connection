@@ -86,6 +86,13 @@ receive(self)
         RETVAL
 
 void
+close_channel(self, channel)
+    RabbitMQ::Connection self
+    int channel
+    CODE:
+        rmqc_close_channel(self, channel);
+
+void
 close(self)
     RabbitMQ::Connection self
     CODE:
