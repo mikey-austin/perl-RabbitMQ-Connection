@@ -25,6 +25,7 @@ struct rmqc {
     int max_channels;
     int num_channels;
     int ssl;
+    int verify;
     char *cacert;
 };
 
@@ -46,6 +47,8 @@ extern int rmqc_consume(rmqc_t *self, HV *args);
 extern SV *rmqc_receive(rmqc_t *self);
 
 extern int rmqc_connect(rmqc_t *self);
+
+extern int rmqc_send(rmqc_t *self, HV *args);
 
 extern int rmqc_close(rmqc_t *self);
 

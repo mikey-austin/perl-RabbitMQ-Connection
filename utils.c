@@ -59,6 +59,11 @@ rmqc_new(rmqc_t **self, HV *args)
     else
         fetch_int(args, "tls", &(*self)->ssl);
 
+    if(!hv_exists(args, "verify", strlen("verify")))
+        (*self)->verify = 0;
+    else
+        fetch_int(args, "verify", &(*self)->verify);
+
     if(!hv_exists(args, "cacert", strlen("cacert"))) {
         (*self)->cacert = NULL;
     }
@@ -130,9 +135,6 @@ rmqc_connect(rmqc_t *self)
     int status;
 
     self->con = amqp_new_connection();
-    if(!(socket = amqp_tcp_socket_new(self->con)))
-        croak("could not create socket");
-
     if(self->ssl) {
         socket = amqp_ssl_socket_new(self->con);
         if(!socket)
@@ -141,14 +143,26 @@ rmqc_connect(rmqc_t *self)
         if(self->cacert) {
             status = amqp_ssl_socket_set_cacert(socket, self->cacert);
             if(status)
-                croak("could not set CA certificate %s", self->cacert);
+                croak("could not set CA certificate %s: %s",
+                      self->cacert, amqp_error_string2(status));
         }
+        
+        amqp_ssl_socket_set_verify(socket, self->verify ? 1 : 0);
+    }
+    else {
+        socket = amqp_tcp_socket_new(self->con);
+        if(!socket)
+            croak("could not create tcp socket");
     }
 
     status = amqp_socket_open(socket, self->host, self->port);
-    if(status != 0)
-        croak("could not open %ssocket to %s port %d",
-              (self->ssl ? "ssl " : ""), self->host, self->port);
+    if(status != 0) {
+        croak("could not open %ssocket to %s port %d: %s",
+              (self->ssl ? "ssl " : ""),
+              self->host,
+              self->port,
+              amqp_error_string2(status));
+    }
 
     croak_on_amqp_error(amqp_login(self->con, self->vhost, self->max_channels,
                                    FRAME_MAX, HEARTBEAT, AMQP_SASL_METHOD_PLAIN,
