@@ -23,6 +23,7 @@ static int channel_exists(rmqc_t *self, int channel);
 static void store_channel(rmqc_t *self, int channel);
 static void remove_channel(rmqc_t *self, int channel);
 static int fetch_int(HV *h, char *key, int *val); 
+static int fetch_uint(HV *h, char *key, unsigned long *val); 
 static int fetch_str(HV *h, char *key, char **val, int *len);
 static void croak_on_amqp_error(amqp_rpc_reply_t x, char const *context);
 
@@ -349,7 +350,7 @@ rmqc_send(rmqc_t *self, HV *args)
     if(fetch_int(args, "mandatory", &mandatory) != RMQC_OK)
         mandatory = 0;
     if(fetch_int(args, "immediate", &immediate) != RMQC_OK)
-       immediate = 0;
+        immediate = 0;
     
     if(fetch_str(args, "exchange", &exchange_name, &len) != RMQC_OK) {
         exchange = amqp_empty_bytes;
@@ -377,6 +378,33 @@ rmqc_send(rmqc_t *self, HV *args)
 
     if(amqp_basic_publish(self->con, channel, exchange, routing_key, mandatory, immediate, &props, body))
         croak("could not send message");
+
+    return RMQC_OK;
+}
+
+extern int
+rmqc_send_ack(rmqc_t *self, HV *args)
+{
+    int channel, multiple = 0;
+    unsigned long delivery_tag = 0;
+
+    if(self->con == NULL)
+        croak("not connected");
+
+    if(fetch_int(args, "channel", &channel) != RMQC_OK)
+        channel = DEFAULT_CHANNEL;
+
+    if(!channel_exists(self, channel)) {
+        amqp_channel_open(self->con, channel);
+        croak_on_amqp_error(amqp_get_rpc_reply(self->con), "channel open");
+        store_channel(self, channel);
+    }
+
+    fetch_int(args, "multiple", &multiple);
+    fetch_uint(args, "delivery_tag", &delivery_tag);
+
+    if(amqp_basic_ack(self->con, channel, delivery_tag, multiple))
+        croak("could not send ack for %lu", delivery_tag);
 
     return RMQC_OK;
 }
@@ -447,6 +475,8 @@ extern SV
     croak_on_amqp_error(amqp_consume_message(self->con, &envelope, NULL, 0), "consume_message");
 
     hv_store(out, "channel", strlen("channel"), newSViv(envelope.channel), 0);
+    hv_store(out, "delivery_tag", strlen("delivery_tag"), newSViv(envelope.delivery_tag), 0);
+    hv_store(out, "redelivered", strlen("redelivered"), newSViv(envelope.redelivered), 0);
     hv_store(out, "exchange", strlen("exchange"),
              newSVpv(envelope.exchange.bytes, envelope.exchange.len), 0);
     hv_store(out, "consumer_tag", strlen("consumer_tag"),
@@ -561,6 +591,21 @@ fetch_int(HV *h, char *key, int *val)
     }
 
     *val = SvIV(*v);
+    return RMQC_OK;
+}
+
+static int
+fetch_uint(HV *h, char *key, unsigned long *val)
+{
+    SV **v;
+
+    if(!hv_exists(h, key, strlen(key))
+       || !(v = hv_fetch(h, key, strlen(key), 0)))
+    {
+        return RMQC_ERR;
+    }
+
+    *val = SvUV(*v);
     return RMQC_OK;
 }
 

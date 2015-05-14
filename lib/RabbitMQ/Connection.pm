@@ -3,7 +3,7 @@ package RabbitMQ::Connection;
 use strict;
 use warnings;
 
-our $VERSION = '0.4';
+our $VERSION = '0.5';
 
 require XSLoader;
 XSLoader::load('RabbitMQ::Connection', $VERSION);
@@ -26,6 +26,11 @@ sub declare_exchange {
 sub send {
     my ($self, %args) = @_;
     $self->_send(\%args);
+}
+
+sub send_ack {
+    my ($self, %args) = @_;
+    $self->_send_ack(\%args);
 }
 
 sub bind {
