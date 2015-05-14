@@ -3,7 +3,7 @@ package RabbitMQ::Connection;
 use strict;
 use warnings;
 
-our $VERSION = '0.5';
+our $VERSION = '0.6';
 
 require XSLoader;
 XSLoader::load('RabbitMQ::Connection', $VERSION);

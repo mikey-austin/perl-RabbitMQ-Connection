@@ -496,13 +496,15 @@ rmqc_close(rmqc_t *self)
 {
     int i;
 
-    for(i = 0; i < self->num_channels; i++) {
-        rmqc_close_channel(self, self->channels[i]);
-    }
+    if(self && self->con) {
+        for(i = 0; i < self->num_channels; i++) {
+            rmqc_close_channel(self, self->channels[i]);
+        }
 
-    croak_on_amqp_error(amqp_connection_close(self->con, AMQP_REPLY_SUCCESS), "close");
-    amqp_destroy_connection(self->con);
-    self->con = NULL;
+        croak_on_amqp_error(amqp_connection_close(self->con, AMQP_REPLY_SUCCESS), "close");
+        amqp_destroy_connection(self->con);
+        self->con = NULL;
+    }
 
     return RMQC_OK;
 }
@@ -520,14 +522,18 @@ extern int
 rmqc_destroy(rmqc_t *self)
 {
     if(self != NULL) {
+        if(self->con) {
+            amqp_destroy_connection(self->con);
+            self->con = NULL;
+        }
         free(self->host);
         free(self->user);
         free(self->pass);
         free(self->vhost);
         free(self->channels);
+        self->channels = NULL;
         if(self->cacert)
             free(self->cacert);
-        self->channels = NULL;
         free(self);
     }
     
@@ -635,18 +641,18 @@ croak_on_amqp_error(amqp_rpc_reply_t x, char const *context)
         return;
 
     case AMQP_RESPONSE_NONE:
-        croak("%s: missing RPC reply type!\n", context);
+        croak("%s: missing RPC reply type!", context);
         break;
 
     case AMQP_RESPONSE_LIBRARY_EXCEPTION:
-        croak("%s: %s\n", context, amqp_error_string2(x.library_error));
+        croak("%s: %s", context, amqp_error_string2(x.library_error));
         break;
 
     case AMQP_RESPONSE_SERVER_EXCEPTION:
         switch (x.reply.id) {
         case AMQP_CONNECTION_CLOSE_METHOD: {
             amqp_connection_close_t *m = (amqp_connection_close_t *) x.reply.decoded;
-            croak("%s: server connection error %d, message: %.*s\n",
+            croak("%s: server connection error %d, message: %.*s",
                     context,
                     m->reply_code,
                     (int) m->reply_text.len, (char *) m->reply_text.bytes);
@@ -654,14 +660,14 @@ croak_on_amqp_error(amqp_rpc_reply_t x, char const *context)
         }
         case AMQP_CHANNEL_CLOSE_METHOD: {
             amqp_channel_close_t *m = (amqp_channel_close_t *) x.reply.decoded;
-            croak("%s: server channel error %d, message: %.*s\n",
+            croak("%s: server channel error %d, message: %.*s",
                     context,
                     m->reply_code,
                     (int) m->reply_text.len, (char *) m->reply_text.bytes);
             break;
         }
         default:
-            croak("%s: unknown server error, method id 0x%08X\n", context, x.reply.id);
+            croak("%s: unknown server error, method id 0x%08X", context, x.reply.id);
             break;
         }
         break;
