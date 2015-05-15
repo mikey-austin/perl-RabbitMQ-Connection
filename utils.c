@@ -481,21 +481,13 @@ extern SV
 
     amqp_maybe_release_buffers(self->con);
     ret = amqp_consume_message(self->con, &envelope, tval_p, 0);
-
-    if(ret.reply_type == AMQP_RESPONSE_LIBRARY_EXCEPTION) {
-        switch(ret.library_error) {
-        case AMQP_STATUS_TIMEOUT:
-            return out_ref;
-
-        default:
-            croak_on_amqp_error(ret, "consume_message");
-            break;
-        }
-    }
-    else if(ret.reply_type == AMQP_RESPONSE_NORMAL) {
-        hv_store(out, "channel", strlen("channel"), newSViv(envelope.channel), 0);
-        hv_store(out, "delivery_tag", strlen("delivery_tag"), newSViv(envelope.delivery_tag), 0);
-        hv_store(out, "redelivered", strlen("redelivered"), newSViv(envelope.redelivered), 0);
+    if(ret.reply_type == AMQP_RESPONSE_NORMAL) {
+        hv_store(out, "channel", strlen("channel"),
+                 newSViv(envelope.channel), 0);
+        hv_store(out, "delivery_tag", strlen("delivery_tag"),
+                 newSViv(envelope.delivery_tag), 0);
+        hv_store(out, "redelivered", strlen("redelivered"),
+                 newSViv(envelope.redelivered), 0);
         hv_store(out, "exchange", strlen("exchange"),
                  newSVpv(envelope.exchange.bytes, envelope.exchange.len), 0);
         hv_store(out, "consumer_tag", strlen("consumer_tag"),
@@ -507,6 +499,11 @@ extern SV
     
         amqp_destroy_envelope(&envelope);
         out_ref = newRV_noinc((SV *) out);
+    }
+    else if(ret.reply_type == AMQP_RESPONSE_LIBRARY_EXCEPTION
+        && ret.library_error == AMQP_STATUS_TIMEOUT)
+    {
+        return out_ref;
     }
     else {
         croak_on_amqp_error(ret, "consume_message");
