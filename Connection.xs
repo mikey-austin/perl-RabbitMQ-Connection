@@ -87,10 +87,13 @@ _consume(self, args_ref)
         rmqc_consume(self, args);
 
 SV *
-receive(self)
+_receive(self, args_ref)
     RabbitMQ::Connection self
+    SV *args_ref
+    INIT:
+        HV *args = (HV *) SvRV(args_ref);
     CODE:
-        RETVAL = rmqc_receive(self);
+        RETVAL = rmqc_receive(self, args);
     OUTPUT:
         RETVAL
 

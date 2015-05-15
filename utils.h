@@ -44,7 +44,7 @@ extern int rmqc_bind(rmqc_t *self, HV *args);
 
 extern int rmqc_consume(rmqc_t *self, HV *args);
 
-extern SV *rmqc_receive(rmqc_t *self);
+extern SV *rmqc_receive(rmqc_t *self, HV *args);
 
 extern int rmqc_connect(rmqc_t *self);
 

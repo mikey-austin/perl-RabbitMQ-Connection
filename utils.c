@@ -461,34 +461,58 @@ rmqc_consume(rmqc_t *self, HV *args)
 }
 
 extern SV
-*rmqc_receive(rmqc_t *self)
+*rmqc_receive(rmqc_t *self, HV *args)
 {
+    long unsigned int timeout = 0;
+    struct timeval *tval_p = NULL, tval;
     amqp_envelope_t envelope;
+    amqp_rpc_reply_t ret;
     HV *out = newHV();
+    SV *out_ref = &PL_sv_undef;
 
     if(self->con == NULL)
         croak("not connected");
 
+    if(fetch_uint(args, "timeout", &timeout) == RMQC_OK) {
+        memset(&tval, 0, sizeof(tval));
+        tval.tv_sec = timeout;
+        tval_p = &tval;
+    }
+
     amqp_maybe_release_buffers(self->con);
+    ret = amqp_consume_message(self->con, &envelope, tval_p, 0);
 
-    /* We set no timeout, so this will block. */
-    croak_on_amqp_error(amqp_consume_message(self->con, &envelope, NULL, 0), "consume_message");
+    if(ret.reply_type == AMQP_RESPONSE_LIBRARY_EXCEPTION) {
+        switch(ret.library_error) {
+        case AMQP_STATUS_TIMEOUT:
+            return out_ref;
 
-    hv_store(out, "channel", strlen("channel"), newSViv(envelope.channel), 0);
-    hv_store(out, "delivery_tag", strlen("delivery_tag"), newSViv(envelope.delivery_tag), 0);
-    hv_store(out, "redelivered", strlen("redelivered"), newSViv(envelope.redelivered), 0);
-    hv_store(out, "exchange", strlen("exchange"),
-             newSVpv(envelope.exchange.bytes, envelope.exchange.len), 0);
-    hv_store(out, "consumer_tag", strlen("consumer_tag"),
-             newSVpv(envelope.consumer_tag.bytes, envelope.consumer_tag.len), 0);
-    hv_store(out, "routing_key", strlen("routing_key"),
-             newSVpv(envelope.routing_key.bytes, envelope.routing_key.len), 0);
-    hv_store(out, "body", strlen("body"),
-             newSVpv(envelope.message.body.bytes, envelope.message.body.len), 0);
+        default:
+            croak_on_amqp_error(ret, "consume_message");
+            break;
+        }
+    }
+    else if(ret.reply_type == AMQP_RESPONSE_NORMAL) {
+        hv_store(out, "channel", strlen("channel"), newSViv(envelope.channel), 0);
+        hv_store(out, "delivery_tag", strlen("delivery_tag"), newSViv(envelope.delivery_tag), 0);
+        hv_store(out, "redelivered", strlen("redelivered"), newSViv(envelope.redelivered), 0);
+        hv_store(out, "exchange", strlen("exchange"),
+                 newSVpv(envelope.exchange.bytes, envelope.exchange.len), 0);
+        hv_store(out, "consumer_tag", strlen("consumer_tag"),
+                 newSVpv(envelope.consumer_tag.bytes, envelope.consumer_tag.len), 0);
+        hv_store(out, "routing_key", strlen("routing_key"),
+                 newSVpv(envelope.routing_key.bytes, envelope.routing_key.len), 0);
+        hv_store(out, "body", strlen("body"),
+                 newSVpv(envelope.message.body.bytes, envelope.message.body.len), 0);
     
-    amqp_destroy_envelope(&envelope);
+        amqp_destroy_envelope(&envelope);
+        out_ref = newRV_noinc((SV *) out);
+    }
+    else {
+        croak_on_amqp_error(ret, "consume_message");
+    }
 
-    return newRV_noinc((SV *) out);
+    return out_ref;
 }
 
 extern int
