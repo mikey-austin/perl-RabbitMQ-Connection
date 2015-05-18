@@ -25,6 +25,7 @@ struct rmqc {
     int max_channels;
     int num_channels;
     int ssl;
+    int heartbeat;
     int verify;
     char *cacert;
 };

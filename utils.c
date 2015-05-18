@@ -60,6 +60,11 @@ rmqc_new(rmqc_t **self, HV *args)
     else
         fetch_int(args, "tls", &(*self)->ssl);
 
+    if(!hv_exists(args, "heartbeat", strlen("heartbeat")))
+        (*self)->heartbeat = HEARTBEAT;
+    else
+        fetch_int(args, "heartbeat", &(*self)->heartbeat);
+
     if(!hv_exists(args, "verify", strlen("verify")))
         (*self)->verify = 0;
     else
@@ -166,7 +171,7 @@ rmqc_connect(rmqc_t *self)
     }
 
     croak_on_amqp_error(amqp_login(self->con, self->vhost, self->max_channels,
-                                   FRAME_MAX, HEARTBEAT, AMQP_SASL_METHOD_PLAIN,
+                                   FRAME_MAX, self->heartbeat, AMQP_SASL_METHOD_PLAIN,
                                    self->user, self->pass), "login");
 
     return RMQC_OK;
